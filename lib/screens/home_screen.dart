@@ -15,9 +15,9 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   static const Color gold = Color(0xFFFFD700); // Custom gold color
   late VideoPlayerController _videoPlayerController;
-  late ChewieController _chewieController;
+  ChewieController? _chewieController;
   late AudioPlayer _audioPlayer;
-  double _volume = 1.0;
+  double _volume = 1.0; // Normal ses seviyesi (1.0 = %100)
   String? _fileName;
   String? _filePath;
   bool _isVideo = false;
@@ -58,7 +58,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
       try {
         if (_isVideo) {
+          // Önceki video controller'ı temizle
+          if (_chewieController != null) {
+            _chewieController!.dispose();
+          }
+          
           _videoPlayerController = VideoPlayerController.file(File(_filePath!));
+          await _videoPlayerController.initialize();
+          
           _chewieController = ChewieController(
             videoPlayerController: _videoPlayerController,
             autoPlay: false,
@@ -70,9 +77,12 @@ class _HomeScreenState extends State<HomeScreen> {
               bufferedColor: Colors.grey[600] ?? Colors.grey,
             ),
           );
-          await _videoPlayerController.initialize();
         } else {
           await _audioPlayer.stop();
+          setState(() {
+            _audioPosition = Duration.zero;
+            _audioDuration = Duration.zero;
+          });
           await _audioPlayer.setSourceDeviceFile(_filePath!);
           await _audioPlayer.setVolume(_volume);
         }
@@ -96,8 +106,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    if (_chewieController != null) {
+      _chewieController!.dispose();
+    }
     _videoPlayerController.dispose();
-    _chewieController.dispose();
     _audioPlayer.dispose();
     super.dispose();
   }
@@ -155,10 +167,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     child: _isLoading
                         ? Center(child: CircularProgressIndicator(color: gold))
-                        : _filePath != null && (_isVideo ? _videoPlayerController.value.isInitialized : true)
+                        : _filePath != null && (_isVideo ? (_chewieController != null && _videoPlayerController.value.isInitialized) : true)
                             ? _isVideo
                                 ? Chewie(
-                                    controller: _chewieController,
+                                    controller: _chewieController!,
                                   )
                                 : Center(
                                     child: Column(
@@ -256,11 +268,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                         });
                                       },
                               ),
-                              if (!_isVideo)
+                              if (!_isVideo && _audioDuration.inSeconds > 0)
                                 Expanded(
                                   child: Slider(
-                                    value: _audioPosition.inSeconds.toDouble(),
+                                    value: _audioPosition.inSeconds.toDouble().clamp(0.0, _audioDuration.inSeconds.toDouble()),
                                     min: 0.0,
+                                    max: _audioDuration.inSeconds.toDouble(),
                                     activeColor: gold,
                                     inactiveColor: Colors.grey[600],
                                     onChanged: (value) {
@@ -280,9 +293,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 30),
                   // Volume Control Area
                   Container(
-                    height: 90,
+                    height: 120,
                     width: double.infinity,
-                    padding: const EdgeInsets.all(12.0),
+                    padding: const EdgeInsets.all(16.0),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [Colors.grey[800]!, Colors.grey[700]!],
@@ -290,25 +303,165 @@ class _HomeScreenState extends State<HomeScreen> {
                         end: Alignment.bottomRight,
                       ),
                       borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: gold.withOpacity(0.3), width: 1),
                     ),
-                    child: Slider(
-                      value: _volume,
-                      min: 0.0,
-                      max: 1.0,
-                      activeColor: gold,
-                      inactiveColor: Colors.grey[600],
-                      onChanged: _isLoading
-                          ? null
-                          : (value) {
-                              setState(() {
-                                _volume = value;
-                                if (_isVideo && _videoPlayerController.value.isInitialized) {
-                                  _videoPlayerController.setVolume(_volume);
-                                } else {
-                                  _audioPlayer.setVolume(_volume);
-                                }
-                              });
-                            },
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // Ses seviyesi göstergesi
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Ses Seviyesi',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: gold.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: gold.withOpacity(0.5), width: 1),
+                              ),
+                              child: Text(
+                                '${(_volume * 100).round()}%',
+                                style: TextStyle(
+                                  color: gold,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 12),
+                        // Ses kontrol slider'ı
+                        Row(
+                          children: [
+                            // Ses kısma butonu
+                            GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _volume = (_volume - 0.1).clamp(0.0, 2.0);
+                                  if (_isVideo && _videoPlayerController.value.isInitialized) {
+                                    _videoPlayerController.setVolume(_volume > 1.0 ? 1.0 : _volume);
+                                  } else {
+                                    _audioPlayer.setVolume(_volume);
+                                  }
+                                });
+                              },
+                              child: Container(
+                                padding: EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[600],
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.3),
+                                      blurRadius: 4,
+                                      offset: Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: Icon(
+                                  Icons.volume_down,
+                                  color: _volume > 0 ? gold : Colors.grey[400],
+                                  size: 24,
+                                ),
+                              ),
+                            ),
+                            SizedBox(width: 12),
+                            // Slider
+                            Expanded(
+                              child: SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  activeTrackColor: _volume > 1.0 ? Colors.red : gold,
+                                  inactiveTrackColor: Colors.grey[600],
+                                  thumbColor: _volume > 1.0 ? Colors.red : gold,
+                                  thumbShape: RoundSliderThumbShape(enabledThumbRadius: 10),
+                                  overlayColor: (_volume > 1.0 ? Colors.red : gold).withOpacity(0.3),
+                                  trackHeight: 6,
+                                ),
+                                child: Slider(
+                                  value: _volume,
+                                  min: 0.0,
+                                  max: 2.0, // %200 ses seviyesi için
+                                  divisions: 20, // 0.1 artışlarla
+                                  onChanged: _isLoading
+                                      ? null
+                                      : (value) {
+                                          setState(() {
+                                            _volume = value;
+                                            if (_isVideo && _videoPlayerController.value.isInitialized) {
+                                              // Video için maksimum 1.0
+                                              _videoPlayerController.setVolume(_volume > 1.0 ? 1.0 : _volume);
+                                            } else {
+                                              _audioPlayer.setVolume(_volume);
+                                            }
+                                          });
+                                        },
+                                ),
+                              ),
+                            ),
+                            SizedBox(width: 12),
+                            // Ses yükseltme butonu
+                            GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _volume = (_volume + 0.1).clamp(0.0, 2.0);
+                                  if (_isVideo && _videoPlayerController.value.isInitialized) {
+                                    _videoPlayerController.setVolume(_volume > 1.0 ? 1.0 : _volume);
+                                  } else {
+                                    _audioPlayer.setVolume(_volume);
+                                  }
+                                });
+                              },
+                              child: Container(
+                                padding: EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: _volume >= 2.0 ? Colors.grey[700] : Colors.grey[600],
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.3),
+                                      blurRadius: 4,
+                                      offset: Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: Icon(
+                                  Icons.volume_up,
+                                  color: _volume >= 2.0 ? Colors.grey[400] : (_volume > 1.0 ? Colors.red : gold),
+                                  size: 24,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        // Uyarı mesajı (ses %100'den fazla ise)
+                        if (_volume > 1.0) ...[
+                          SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.warning, color: Colors.orange, size: 16),
+                              SizedBox(width: 4),
+                              Text(
+                                'Yüksek ses seviyesi - Kulağınıza zarar verebilir',
+                                style: TextStyle(
+                                  color: Colors.orange,
+                                  fontSize: 12,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ],
