@@ -7,9 +7,13 @@ environment:
   sdk: ^3.8.1
 
 dependencies:
+  audioplayers: ^6.5.0
+  chewie: ^1.12.1
+  file_picker: ^10.2.1
   flutter:
     sdk: flutter
   lottie: ^3.3.1
+  video_player: ^2.10.0
 
 dev_dependencies:
   flutter_test:
